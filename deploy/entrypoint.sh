@@ -17,12 +17,24 @@ for v in APP_ENV APP_URL APP_FORCE_HTTPS APP_DEBUG APP_SECRET DB_HOST DB_PORT DB
 done
 sort -u -o /etc/apache2/conf-enabled/app-env.conf /etc/apache2/conf-enabled/app-env.conf 2>/dev/null || true
 
-echo "Ожидание базы данных..."
+if [ -z "${DB_HOST:-}${MYSQLHOST:-}" ]; then
+  echo "ОШИБКА: не заданы переменные базы данных (DB_HOST, DB_NAME, DB_USER, DB_PASS)."
+  echo "Railway: добавьте сервис MySQL (+ Create -> Database -> MySQL), затем в сервисе сайта"
+  echo "Variables -> Raw Editor вставьте переменные из docs/DEPLOY-RAILWAY.md (DB_HOST=\${{MySQL.MYSQLHOST}} и т.д.)."
+  exit 1
+fi
+echo "Ожидание базы данных (${DB_HOST:-$MYSQLHOST}:${DB_PORT:-${MYSQLPORT:-3306}})..."
 i=0
-until php -r 'require "/var/www/html/app/bootstrap.php"; Db::pdo();' 2>/dev/null; do
-  i=$((i+1)); [ $i -gt 60 ] && { echo "База данных недоступна — проверьте переменные DB_* / MYSQL*"; exit 1; }
+until err=$(php -r 'require "/var/www/html/app/bootstrap.php"; try { Db::pdo(); } catch (Throwable $e) { echo $e->getMessage(); exit(1); }' 2>&1); do
+  i=$((i+1))
+  [ $((i % 5)) -eq 1 ] && echo "  база пока недоступна: $err"
+  if [ $i -gt 45 ]; then
+    echo "ОШИБКА: база данных недоступна 90 секунд. Проверьте, что сервис MySQL запущен и переменные DB_* указывают на него."
+    exit 1
+  fi
   sleep 2
 done
+echo "База данных подключена."
 
 # Идемпотентно: создаёт недостающие таблицы, демо-данные — только если каталог пуст,
 # администратора — только если его нет (пароль из ADMIN_PASSWORD или сгенерированный, см. логи)
