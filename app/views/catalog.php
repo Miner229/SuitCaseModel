@@ -1,6 +1,6 @@
 <?php /** @var ?array $cat @var array $f @var array $options @var array $categories @var string $basePath */ ?>
 <section class="wrap section section--top">
-  <h1><?= e($cat ? ($cat['h1'] ?: $cat['name']) : 'Каталог чемоданов') ?></h1>
+  <h1><?= e($cat ? ($cat['h1'] ?: $cat['name']) : (($page['h1'] ?? '') ?: 'Каталог чемоданов')) ?></h1>
   <?php if ($cat && $cat['intro']): ?><p class="lead"><?= e($cat['intro']) ?></p><?php endif; ?>
 
   <div class="cat-tabs" role="list">
@@ -69,7 +69,11 @@
     </div>
   </div>
 
-  <?php if ($cat): ?>
+  <?php if ($cat && trim((string)$cat['seo_text']) !== ''): ?>
+  <?= View::partial('partials/seo_text', ['text' => $cat['seo_text']]) ?>
+  <?php elseif (!$cat): ?>
+  <?= View::partial('partials/seo_text', ['text' => $page['body'] ?? '']) ?>
+  <?php elseif ($cat): ?>
   <div class="seo-text">
     <h2><?= e($cat['name']) ?>: как выбрать</h2>
     <p>Все модели раздела «<?= e($cat['name']) ?>» мы измеряем вместе с колёсами и ручками, поэтому габариты в карточках соответствуют тому, что измерят на стойке регистрации. Если сомневаетесь в выборе — оставьте заявку, и менеджер подберёт модель под вашу авиакомпанию и бюджет.</p>

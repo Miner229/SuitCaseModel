@@ -47,3 +47,4 @@
     <?php foreach ($cities as $c) if ($c['id'] !== $city['id']): ?><a href="/<?= e($c['slug']) ?>/"><?= e($c['name']) ?></a><?php endif; ?>
   </div>
 </section>
+<?php if (trim((string)$city['seo_text']) !== ''): ?><section class="wrap section"><?= View::partial('partials/seo_text', ['text' => $city['seo_text']]) ?></section><?php endif; ?>

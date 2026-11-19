@@ -79,8 +79,10 @@ section('1. Страницы и коды ответов');
 $pages = ['/', '/catalog/', '/goroda/', '/dostavka-i-oplata/', '/kontakty/', '/o-kompanii/', '/garantiya-i-vozvrat/', '/kak-vybrat-chemodan/', '/politika-konfidencialnosti/', '/soglasie/'];
 foreach (Catalog::categories() as $c) $pages[] = '/catalog/' . $c['slug'] . '/';
 foreach (Catalog::cities() as $c) $pages[] = '/' . $c['slug'] . '/';
-$products = Db::all('SELECT slug FROM products WHERE is_active = 1');
+$products = Db::all('SELECT slug FROM products WHERE is_active = 1 AND noindex = 0');
 foreach ($products as $p) $pages[] = '/product/' . $p['slug'] . '/';
+$pages[] = '/blog/';
+foreach (Articles::published() as $a) $pages[] = '/blog/' . $a['slug'] . '/';
 $html = [];
 $slow = [];
 foreach ($pages as $p) {
@@ -94,6 +96,7 @@ foreach ($pages as $p) {
 t('Все ' . count($pages) . ' страниц отвечают 200', count(array_filter($html, fn($b) => $b !== '')) === count($pages));
 t('Время генерации каждой страницы < 500 мс', !$slow, implode(', ', $slow));
 t('Активных товаров в каталоге: ' . count($products) . ' (ожидается ~20)', count($products) >= 18);
+$products = array_values($products);
 t('Несуществующая страница → 404', http('GET', '/net-takoy-stranicy/')['code'] === 404);
 t('Несуществующий товар → 404', http('GET', '/product/net-takogo/')['code'] === 404);
 t('Несуществующая категория → 404', http('GET', '/catalog/net-takoy/')['code'] === 404);
@@ -398,7 +401,7 @@ http('POST', "/admin/products/$dupId/delete/", ['form' => ['_csrf' => $tok]]);
 $left = Catalog::images($newId);
 http('POST', "/admin/products/$newId/delete/", ['form' => ['_csrf' => $tok]]);
 t('Удаление товара вместе с фото', !Db::value('SELECT id FROM products WHERE id IN (?, ?)', [$newId, $dupId]) && !imgExists($left[0]['file'], 400));
-t('Удалённый товар → 404', http('GET', "/product/$slug/")['code'] === 404);
+t('Удалённый товар → 301 в категорию (не 404)', http('GET', "/product/$slug/")['code'] === 301);
 // Заявки в админке
 resetLimits();
 http('POST', '/api/lead/', ['json' => lead(['name' => '<img src=x onerror=alert(1)>', 'message' => '=HYPERLINK("http://x")']), 'nojar' => true]);
@@ -431,6 +434,140 @@ $r = http('POST', '/admin/password/', ['form' => ['_csrf' => $tok, 'current' => 
 t('Слабый новый пароль отклоняется', str_contains(http('GET', '/admin/password/')['body'], 'минимум 10'));
 $r = http('POST', '/admin/logout/', ['form' => ['_csrf' => $tok]]);
 t('Выход из админки', http('GET', '/admin/')['code'] === 302);
+
+
+// ============================================================
+section('10. SEO-инструменты: страницы, блог, редиректы, города и категории');
+resetLimits();
+$lg = http('GET', '/admin/login/');
+http('POST', '/admin/login/', ['form' => ['_csrf' => csrf($lg['body']), 'login' => 'admin', 'password' => $ADMIN_PASS]]);
+$tok = csrf(http('GET', '/admin/')['body']);
+$title = fn(string $path) => txt(dom(http('GET', $path)['body']), '//title');
+$h1 = fn(string $path) => txt(dom(http('GET', $path)['body']), '//h1');
+
+// Страницы
+t('Раздел «Страницы» открывается', str_contains(http('GET', '/admin/pages/')['body'], 'Главная'));
+http('POST', '/admin/pages/home/', ['form' => ['_csrf' => $tok, 'meta_title' => 'QA title главной', 'meta_description' => 'QA описание главной страницы для проверки', 'h1' => 'QA H1 главной', 'body' => "## QA подзаголовок\n\nQA SEO-текст **жирный**\n\n- пункт 1\n- пункт 2"]]);
+$home = http('GET', '/')['body'];
+t('Главная: title, description, H1 из админки', $title('/') === 'QA title главной' && $h1('/') === 'QA H1 главной' && str_contains($home, 'content="QA описание главной'));
+t('Главная: SEO-текст с разметкой (заголовок, жирный, список)', str_contains($home, '<h2>QA подзаголовок</h2>') && str_contains($home, '<strong>жирный</strong>') && str_contains($home, '<li>пункт 2</li>'));
+http('POST', '/admin/pages/o-kompanii/', ['form' => ['_csrf' => $tok, 'meta_title' => '', 'meta_description' => '', 'h1' => 'QA О нас', 'body' => "Свой текст о компании.\n\n<script>alert(1)</script> [плохая](javascript:alert(1)) [хорошая](/catalog/)"]]);
+$ok = http('GET', '/o-kompanii/')['body'];
+t('Информационная страница: текст из админки заменяет стандартный', str_contains($ok, 'Свой текст о компании') && !str_contains($ok, 'Работаем с официальными поставщиками') && $h1('/o-kompanii/') === 'QA О нас');
+t('Разметка безопасна: <script> экранирован, javascript:-ссылка удалена', !str_contains($ok, '<script>alert(1)') && !str_contains($ok, 'javascript:') && str_contains($ok, '<a href="/catalog/">хорошая</a>'));
+Db::run("DELETE FROM pages WHERE slug IN ('home', 'o-kompanii')");
+t('После очистки полей — снова стандартные тексты', str_contains(http('GET', '/o-kompanii/')['body'], 'официальными поставщиками') && $h1('/') !== 'QA H1 главной');
+
+// Категории
+$r = http('POST', '/admin/seo/new/category/', ['form' => ['_csrf' => $tok, 'name' => 'QA Детские', 'slug' => 'qa-detskie', 'h1' => 'QA детские чемоданы', 'seo_text' => "## Как выбрать детский чемодан\n\nQA текст категории", 'sort' => '50']]);
+$catId = (int)Db::value("SELECT id FROM categories WHERE slug = 'qa-detskie'");
+t('Добавление новой категории', $catId > 0 && http('GET', '/catalog/qa-detskie/')['code'] === 200);
+t('Новая категория: в меню, sitemap, H1 и SEO-текст', str_contains(http('GET', '/')['body'], 'href="/catalog/qa-detskie/"') && str_contains(http('GET', '/sitemap.xml')['body'], '/catalog/qa-detskie/') && $h1('/catalog/qa-detskie/') === 'QA детские чемоданы' && str_contains(http('GET', '/catalog/qa-detskie/')['body'], 'QA текст категории'));
+http('POST', "/admin/seo/$catId/category/", ['form' => ['_csrf' => $tok, 'name' => 'QA Детские', 'slug' => 'qa-dlya-detey']]);
+$r = http('GET', '/catalog/qa-detskie/');
+t('Смена адреса категории → 301 со старого на новый', $r['code'] === 301 && str_ends_with($r['headers']['location'] ?? '', '/catalog/qa-dlya-detey/'));
+http('POST', "/admin/seo/$catId/category/delete/", ['form' => ['_csrf' => $tok]]);
+$r = http('GET', '/catalog/qa-dlya-detey/');
+t('Удаление категории → 301 в каталог, старые адреса тоже', !Db::value('SELECT id FROM categories WHERE id = ?', [$catId]) && $r['code'] === 301 && str_ends_with($r['headers']['location'] ?? '', '/catalog/') && str_ends_with(http('GET', '/catalog/qa-detskie/')['headers']['location'] ?? '', '/catalog/'));
+$r = http('POST', '/admin/seo/new/category/', ['form' => ['_csrf' => $tok, 'name' => 'Дубль', 'slug' => 'srednie']]);
+t('Нельзя создать категорию с занятым адресом', str_contains($r['body'], 'уже занят'));
+
+// Города
+$r = http('POST', '/admin/seo/new/city/', ['form' => ['_csrf' => $tok, 'name' => 'Блог-сити', 'slug' => 'blog', 'is_active' => '1']]);
+t('Нельзя занять городом служебный адрес (/blog/)', str_contains($r['body'], 'зарезервирован'));
+http('POST', '/admin/seo/new/city/', ['form' => ['_csrf' => $tok, 'name' => 'Жезказган', 'name_in' => 'в Жезказгане', 'delivery_days' => '3–5 дней', 'seo_text' => 'QA текст для Жезказгана', 'is_active' => '1']]);
+$cityId = (int)Db::value("SELECT id FROM cities WHERE slug = 'zhezkazgan'");
+$cp = http('GET', '/zhezkazgan/');
+t('Добавление нового города (ЧПУ из названия: /zhezkazgan/)', $cityId > 0 && $cp['code'] === 200 && $h1('/zhezkazgan/') === 'Чемоданы в Жезказгане' && str_contains($cp['body'], 'QA текст для Жезказгана'));
+t('Новый город в sitemap и в списке городов', str_contains(http('GET', '/sitemap.xml')['body'], '/zhezkazgan/') && str_contains(http('GET', '/goroda/')['body'], 'href="/zhezkazgan/"'));
+http('POST', "/admin/seo/$cityId/city/delete/", ['form' => ['_csrf' => $tok]]);
+$r = http('GET', '/zhezkazgan/');
+t('Удаление города → 301 на список городов', $r['code'] === 301 && str_ends_with($r['headers']['location'] ?? '', '/goroda/'));
+
+// Товары: смена ЧПУ, noindex, удаление
+$p = Db::one('SELECT * FROM products WHERE is_active = 1 ORDER BY id LIMIT 1');
+// Форма со ВСЕМИ полями товара, чтобы тест не затирал характеристики
+$baseForm = ['_csrf' => $tok, 'id' => (string)$p['id']];
+foreach (['name', 'category_id', 'brand', 'sku', 'price', 'old_price', 'size_label', 'material', 'color', 'color_hex', 'width_cm', 'height_cm', 'depth_cm', 'volume_l', 'weight_kg', 'wheels', 'lock_type', 'warranty_months', 'short_desc', 'description', 'meta_title', 'meta_description', 'sort'] as $f) {
+    $baseForm[$f] = (string)($p[$f] ?? '');
+}
+foreach (['expandable', 'in_stock', 'is_active', 'is_featured'] as $f) {
+    if ($p[$f]) $baseForm[$f] = '1';
+}
+$baseForm['width_cm'] = str_replace('.', ',', $baseForm['width_cm']);
+http('POST', '/admin/products/save/', ['form' => $baseForm + ['slug' => $p['slug'] . '-new']]);
+$r = http('GET', '/product/' . $p['slug'] . '/?utm_source=test');
+t('Смена ЧПУ товара → 301 на новый адрес, UTM сохраняются', $r['code'] === 301 && str_contains($r['headers']['location'] ?? '', '/product/' . $p['slug'] . '-new/?utm_source=test'));
+http('POST', '/admin/products/save/', ['form' => $baseForm + ['slug' => $p['slug']]]);
+t('Возврат старого ЧПУ — без петли редиректов', http('GET', '/product/' . $p['slug'] . '/')['code'] === 200 && http('GET', '/product/' . $p['slug'] . '-new/')['code'] === 301);
+http('POST', '/admin/products/save/', ['form' => $baseForm + ['slug' => $p['slug'], 'noindex' => '1']]);
+t('Товар с noindex: виден на сайте, закрыт от индексации, нет в sitemap', http('GET', '/product/' . $p['slug'] . '/')['code'] === 200 && str_contains(http('GET', '/product/' . $p['slug'] . '/')['body'], 'content="noindex, follow"') && !str_contains(http('GET', '/sitemap.xml')['body'], '/product/' . $p['slug'] . '/'));
+http('POST', '/admin/products/save/', ['form' => $baseForm + ['slug' => $p['slug']]]);
+$tmpSlug = 'qa-udalyaemyy-' . random_int(100, 999);
+http('POST', '/admin/products/save/', ['form' => ['_csrf' => $tok, 'name' => 'QA удаляемый', 'slug' => $tmpSlug, 'price' => '1000', 'size_label' => 'S', 'category_id' => (string)$p['category_id'], 'is_active' => '1']]);
+$tid = (int)Db::value('SELECT id FROM products WHERE slug = ?', [$tmpSlug]);
+http('POST', "/admin/products/$tid/delete/", ['form' => ['_csrf' => $tok]]);
+$catSlug = Db::value('SELECT slug FROM categories WHERE id = ?', [$p['category_id']]);
+$r = http('GET', "/product/$tmpSlug/");
+t('Удалённый товар → 301 в его категорию (а не 404)', $r['code'] === 301 && str_ends_with($r['headers']['location'] ?? '', "/catalog/$catSlug/"));
+
+// Редиректы вручную
+http('POST', '/admin/redirects/', ['form' => ['_csrf' => $tok, 'from_path' => 'https://old-site.kz/Chemodany/Old-Page.html', 'to_path' => '/catalog/srednie/', 'note' => 'QA']]);
+$r = http('GET', '/chemodany/old-page.html');
+t('Ручной редирект со старого сайта (полный URL, регистр) → 301', $r['code'] === 301 && str_ends_with($r['headers']['location'] ?? '', '/catalog/srednie/'));
+t('Счётчик переходов по редиректу', (int)Db::value("SELECT hits FROM redirects WHERE from_path = '/chemodany/old-page.html'") >= 1);
+http('POST', '/admin/redirects/', ['form' => ['_csrf' => $tok, 'from_path' => '/qa-a/', 'to_path' => '/qa-b/']]);
+http('POST', '/admin/redirects/', ['form' => ['_csrf' => $tok, 'from_path' => '/qa-b/', 'to_path' => '/catalog/']]);
+t('Цепочка A→B→C схлопывается в A→C', Db::value("SELECT to_path FROM redirects WHERE from_path = '/qa-a/'") === '/catalog/');
+http('POST', '/admin/redirects/', ['form' => ['_csrf' => $tok, 'from_path' => '/admin/settings/', 'to_path' => '/']]);
+t('Служебные адреса (/admin/) перенаправить нельзя', !Db::value("SELECT id FROM redirects WHERE from_path = '/admin/settings/'"));
+http('POST', '/admin/redirects/', ['form' => ['_csrf' => $tok, 'from_path' => '/qa-x/', 'to_path' => 'javascript:alert(1)']]);
+t('Недопустимый адрес назначения отклоняется', !Db::value("SELECT id FROM redirects WHERE from_path = '/qa-x/'"));
+$rid = (int)Db::value("SELECT id FROM redirects WHERE from_path = '/qa-a/'");
+http('POST', "/admin/redirects/$rid/delete/", ['form' => ['_csrf' => $tok]]);
+t('Удаление редиректа → адрес снова 404', http('GET', '/qa-a/')['code'] === 404);
+t('Раздел «Редиректы» показывает список', str_contains(http('GET', '/admin/redirects/')['body'], '/chemodany/old-page.html'));
+
+// Блог
+$bl = http('GET', '/blog/');
+t('Блог: список статей, ссылка в меню', $bl['code'] === 200 && count(Articles::published()) >= 3 && str_contains(http('GET', '/')['body'], 'href="/blog/"'));
+$a0 = Articles::published()[0];
+$ap = http('GET', '/blog/' . $a0['slug'] . '/');
+$types = array_column(array_map(fn($n) => json_decode($n->textContent, true), iterator_to_array(dom($ap['body'])->query('//script[@type="application/ld+json"]'))), '@type');
+t('Статья: 200, JSON-LD BlogPosting + хлебные крошки, товары и CTA', $ap['code'] === 200 && in_array('BlogPosting', $types) && in_array('BreadcrumbList', $types) && str_contains($ap['body'], 'Получить консультацию'));
+$png = tempnam(sys_get_temp_dir(), 'cov') . '.png';
+$im = imagecreatetruecolor(1600, 900); imagefill($im, 0, 0, imagecolorallocate($im, 30, 120, 160)); imagepng($im, $png);
+$r = http('POST', '/admin/blog/save/', ['form' => ['_csrf' => $tok, 'title' => 'QA статья черновик', 'slug' => 'qa-statya', 'excerpt' => 'Анонс QA', 'body' => "## Раздел\n\nТекст QA статьи", 'published_at' => date('Y-m-d\TH:i'), 'cover' => new CURLFile($png, 'image/png', 'c.png')]]);
+$aid = (int)Db::value("SELECT id FROM articles WHERE slug = 'qa-statya'");
+t('Создание статьи с обложкой (WebP)', $aid > 0 && ($cov = Db::value('SELECT cover FROM articles WHERE id = ?', [$aid])) && imgExists($cov, 1200));
+t('Черновик не виден на сайте и в sitemap', http('GET', '/blog/qa-statya/')['code'] === 404 && !str_contains(http('GET', '/sitemap.xml')['body'], 'qa-statya'));
+http('POST', '/admin/blog/save/', ['form' => ['_csrf' => $tok, 'id' => (string)$aid, 'title' => 'QA статья черновик', 'slug' => 'qa-statya', 'body' => "## Раздел\n\nТекст QA статьи", 'is_published' => '1', 'published_at' => date('Y-m-d\TH:i', time() - 60)]]);
+t('Публикация: статья на сайте, в списке и sitemap', http('GET', '/blog/qa-statya/')['code'] === 200 && str_contains(http('GET', '/blog/')['body'], '/blog/qa-statya/') && str_contains(http('GET', '/sitemap.xml')['body'], '/blog/qa-statya/'));
+http('POST', '/admin/blog/save/', ['form' => ['_csrf' => $tok, 'id' => (string)$aid, 'title' => 'QA статья черновик', 'slug' => 'qa-statya', 'is_published' => '1', 'published_at' => date('Y-m-d\TH:i', time() + 86400 * 3)]]);
+t('Отложенная публикация: статья с будущей датой пока скрыта', http('GET', '/blog/qa-statya/')['code'] === 404);
+http('POST', '/admin/blog/save/', ['form' => ['_csrf' => $tok, 'id' => (string)$aid, 'title' => 'QA статья черновик', 'slug' => 'qa-statya-2', 'is_published' => '1', 'noindex' => '1', 'published_at' => date('Y-m-d\TH:i', time() - 60)]]);
+t('Смена адреса статьи → 301; noindex статьи', str_ends_with(http('GET', '/blog/qa-statya/')['headers']['location'] ?? '', '/blog/qa-statya-2/') && str_contains(http('GET', '/blog/qa-statya-2/')['body'], 'noindex, follow') && !str_contains(http('GET', '/sitemap.xml')['body'], 'qa-statya-2'));
+http('POST', "/admin/blog/$aid/delete/", ['form' => ['_csrf' => $tok]]);
+t('Удаление статьи (с обложкой) → 301 в блог', !Db::value('SELECT id FROM articles WHERE id = ?', [$aid]) && !imgExists($cov, 400) && str_ends_with(http('GET', '/blog/qa-statya-2/')['headers']['location'] ?? '', '/blog/'));
+
+// Google Analytics 4 / Tag Manager
+$old = Settings::all();
+http('POST', '/admin/settings/', ['form' => array_merge($old, ['_csrf' => $tok, 'ga4_id' => 'g-abc123xyz9', 'gtm_id' => 'GTM-QA12345'])]);
+$home = http('GET', '/');
+t('GA4: gtag с nonce, ID нормализован', (bool)preg_match('~<script async src="https://www\.googletagmanager\.com/gtag/js\?id=G-ABC123XYZ9" nonce="~', $home['body']));
+t('GTM: контейнер с nonce + noscript', str_contains($home['body'], "'GTM-QA12345'") && str_contains($home['body'], 'ns.html?id=GTM-QA12345'));
+t('CSP разрешает Google Analytics/Tag Manager', str_contains($home['headers']['content-security-policy'] ?? '', 'https://www.googletagmanager.com'));
+http('POST', '/admin/settings/', ['form' => array_merge($old, ['_csrf' => $tok, 'ga4_id' => '<script>', 'gtm_id' => 'bad'])]);
+t('Неверные ID Google отклоняются', Settings::get('ga4_id') === 'G-ABC123XYZ9' || !str_contains(http('GET', '/')['body'], '<script>"'));
+http('POST', '/admin/settings/', ['form' => array_merge($old, ['_csrf' => $tok, 'ga4_id' => '', 'gtm_id' => ''])]);
+t('Без ID — коды Google не выводятся', !str_contains(http('GET', '/')['body'], 'googletagmanager.com/gtag'));
+Db::run("DELETE FROM redirects WHERE note IN ('QA', 'Смена адреса товара', 'Товар удалён', 'Смена адреса', 'Категория удалена', 'Город удалён', 'Смена адреса статьи', 'Статья удалена') OR from_path LIKE '/qa-%'");
+
+// Повторная установка (как при каждом перезапуске на Railway) — ничего не ломает и не дублирует
+$cnt = [(int)Db::value('SELECT COUNT(*) FROM products'), (int)Db::value('SELECT COUNT(*) FROM articles'), (int)Db::value('SELECT COUNT(*) FROM cities')];
+exec('php ' . escapeshellarg(ROOT . '/bin/install.php') . ' 2>&1', $out, $code);
+t('Повторный запуск install.php: без ошибок и дублей данных', $code === 0 && $cnt === [(int)Db::value('SELECT COUNT(*) FROM products'), (int)Db::value('SELECT COUNT(*) FROM articles'), (int)Db::value('SELECT COUNT(*) FROM cities')], implode(' ', $out));
+http('POST', '/admin/logout/', ['form' => ['_csrf' => $tok]]);
 
 // ============================================================
 echo "\n\033[1mИтого: $pass пройдено, $fail провалено\033[0m\n";

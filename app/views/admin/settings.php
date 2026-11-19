@@ -22,6 +22,8 @@ $f = function ($k, $label, $hint = '', $type = 'text') use ($s) {
     <section class="a-card">
       <h2>Аналитика и поисковики</h2>
       <?= $f('metrika_id', 'Номер счётчика Яндекс Метрики', 'только цифры, например 98765432') ?>
+      <?= $f('ga4_id', 'Google Analytics 4 — ID потока', 'формат G-XXXXXXXXXX, если реклама/аналитика в Google') ?>
+      <?= $f('gtm_id', 'Google Tag Manager — ID контейнера', 'формат GTM-XXXXXXX (необязательно)') ?>
       <?= $f('yandex_verification', 'Код Яндекс Вебмастера', 'можно вставить весь мета-тег') ?>
       <?= $f('google_verification', 'Код Google Search Console', 'можно вставить весь мета-тег') ?>
       <h2>Формы и попап</h2>

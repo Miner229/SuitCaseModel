@@ -41,7 +41,18 @@ function admin_dispatch(string $method, string $path): void
         $route === 'settings' => $method === 'POST' ? admin_settings_save() : admin_view('settings', ['title' => 'Настройки', 's' => Settings::all()]),
         $route === 'telegram-test' && $method === 'POST' => admin_telegram_test(),
         $route === 'seo' => admin_view('seo', ['title' => 'SEO: категории и города', 'categories' => Catalog::categories(), 'cities' => Catalog::cities(false)]),
+        ($seg[0] ?? '') === 'seo' && ($seg[1] ?? '') === 'new' && in_array($seg[2] ?? '', ['category', 'city'], true) => admin_seo_edit($seg[2], 0, $method),
+        $id && ($seg[0] ?? '') === 'seo' && in_array($seg[2] ?? '', ['category', 'city'], true) && ($seg[3] ?? '') === 'delete' && $method === 'POST' => admin_seo_delete($seg[2], $id),
         $id && ($seg[0] ?? '') === 'seo' && in_array($seg[2] ?? '', ['category', 'city'], true) => admin_seo_edit($seg[2], $id, $method),
+        $route === 'pages' => admin_view('pages', ['title' => 'Страницы сайта']),
+        ($seg[0] ?? '') === 'pages' && isset(Pages::EDITABLE[$seg[1] ?? '']) => admin_page_edit($seg[1], $method),
+        $route === 'blog' => admin_view('blog', ['title' => 'Блог', 'articles' => Db::all('SELECT * FROM articles ORDER BY COALESCE(published_at, created_at) DESC, id DESC')]),
+        $route === 'blog/new' => admin_article_form(null),
+        $route === 'blog/save' && $method === 'POST' => admin_article_save(),
+        $id && ($seg[0] ?? '') === 'blog' && count($seg) === 2 => admin_article_form($id),
+        $id && ($seg[0] ?? '') === 'blog' && ($seg[2] ?? '') === 'delete' && $method === 'POST' => admin_article_delete($id),
+        $route === 'redirects' => $method === 'POST' ? admin_redirect_add() : admin_view('redirects', ['title' => 'Редиректы (301)', 'redirects' => Db::all('SELECT * FROM redirects ORDER BY id DESC')]),
+        $id && ($seg[0] ?? '') === 'redirects' && ($seg[2] ?? '') === 'delete' && $method === 'POST' => admin_redirect_delete($id),
         $route === 'password' => $method === 'POST' ? admin_password_save($admin) : admin_view('password', ['title' => 'Смена пароля']),
         default => (function () { http_response_code(404); admin_view('message', ['title' => 'Не найдено', 'text' => 'Раздел не найден']); })(),
     };
@@ -144,7 +155,7 @@ const PRODUCT_FIELDS = [
     'width_cm', 'height_cm', 'depth_cm', 'volume_l', 'weight_kg', 'wheels', 'lock_type', 'warranty_months',
     'short_desc', 'description', 'meta_title', 'meta_description', 'sort',
 ];
-const PRODUCT_FLAGS = ['expandable', 'in_stock', 'is_active', 'is_featured'];
+const PRODUCT_FLAGS = ['expandable', 'in_stock', 'is_active', 'is_featured', 'noindex'];
 
 function admin_product_save(): never
 {
@@ -186,11 +197,17 @@ function admin_product_save(): never
     }
     $cols = array_merge(PRODUCT_FIELDS, PRODUCT_FLAGS);
     $vals = array_map(fn($c) => $d[$c], $cols);
+    $oldSlug = $id ? (string)Db::value('SELECT slug FROM products WHERE id = ?', [$id]) : '';
     if ($id) {
         Db::run('UPDATE products SET ' . implode(', ', array_map(fn($c) => "$c = ?", $cols)) . ' WHERE id = ?', [...$vals, $id]);
     } else {
         Db::run('INSERT INTO products (' . implode(', ', $cols) . ') VALUES (' . implode(', ', array_fill(0, count($cols), '?')) . ')', $vals);
         $id = Db::lastId();
+    }
+
+    // Сменился адрес товара — старая ссылка автоматически ведёт на новую (301), позиции в поиске сохраняются
+    if ($oldSlug !== '' && $oldSlug !== $d['slug']) {
+        Redirects::add('/product/' . $oldSlug . '/', '/product/' . $d['slug'] . '/', 'Смена адреса товара');
     }
 
     // Порядок и alt существующих фото
@@ -248,11 +265,16 @@ function admin_product_duplicate(int $id): never
 
 function admin_product_delete(int $id): never
 {
+    $p = Db::one('SELECT p.slug, p.is_active, c.slug AS cat FROM products p LEFT JOIN categories c ON c.id = p.category_id WHERE p.id = ?', [$id]);
     foreach (Catalog::images($id) as $im) {
         Images::delete($im['file']);
     }
     Db::run('DELETE FROM products WHERE id = ?', [$id]);
-    flash('Товар удалён');
+    // Удалённый товар не превращается в ошибку 404: ссылка ведёт в его категорию
+    if ($p && $p['is_active']) {
+        Redirects::add('/product/' . $p['slug'] . '/', $p['cat'] ? '/catalog/' . $p['cat'] . '/' : '/catalog/', 'Товар удалён');
+    }
+    flash($p && $p['is_active'] ? 'Товар удалён. Его адрес теперь перенаправляет в категорию (см. «Редиректы»).' : 'Товар удалён');
     redirect('/admin/products/');
 }
 
@@ -304,7 +326,7 @@ function admin_leads_export(): never
 
 const SETTINGS_EDITABLE = [
     'site_name', 'site_tagline', 'phone', 'whatsapp', 'telegram', 'email', 'address', 'work_hours', 'city_default', 'instagram',
-    'metrika_id', 'yandex_verification', 'google_verification', 'consent_version', 'company_legal', 'popup_delay',
+    'metrika_id', 'ga4_id', 'gtm_id', 'yandex_verification', 'google_verification', 'consent_version', 'company_legal', 'popup_delay',
 ];
 
 function admin_settings_save(): never
@@ -320,6 +342,8 @@ function admin_settings_save(): never
         }
         if ($k === 'whatsapp') $v = preg_replace('/\D/', '', $v);
         if ($k === 'metrika_id' && $v !== '' && !ctype_digit($v)) { $errors[] = 'Номер счётчика Метрики — только цифры'; continue; }
+        if ($k === 'ga4_id') { $v = strtoupper($v); if ($v !== '' && !preg_match('/^G-[A-Z0-9]{4,15}$/', $v)) { $errors[] = 'ID Google Analytics 4 — в формате G-XXXXXXXXXX'; continue; } }
+        if ($k === 'gtm_id') { $v = strtoupper($v); if ($v !== '' && !preg_match('/^GTM-[A-Z0-9]{4,12}$/', $v)) { $errors[] = 'ID Google Tag Manager — в формате GTM-XXXXXXX'; continue; } }
         if (in_array($k, ['yandex_verification', 'google_verification'], true)) {
             // Можно вставить весь мета-тег целиком — вытащим только content
             if (preg_match('/content=["\']?([^"\'\s>]+)/i', (string)($_POST[$k] ?? ''), $m)) $v = $m[1];
@@ -347,26 +371,159 @@ function admin_telegram_test(): never
 function admin_seo_edit(string $type, int $id, string $method): void
 {
     $table = $type === 'city' ? 'cities' : 'categories';
-    $row = Db::one("SELECT * FROM $table WHERE id = ?", [$id]);
-    if (!$row) {
+    $row = $id ? Db::one("SELECT * FROM $table WHERE id = ?", [$id]) : null;
+    if ($id && !$row) {
         redirect('/admin/seo/');
     }
+    $errors = [];
     if ($method === 'POST') {
         $d = fn($k, $len) => mb_substr(trim((string)($_POST[$k] ?? '')), 0, $len);
-        if ($type === 'city') {
-            Db::run('UPDATE cities SET name = ?, name_in = ?, delivery_days = ?, delivery_text = ?, meta_title = ?, meta_description = ?, intro = ?, is_active = ?, sort = ? WHERE id = ?', [
-                $d('name', 80) ?: $row['name'], $d('name_in', 100) ?: $row['name_in'], $d('delivery_days', 40), $d('delivery_text', 3000),
-                $d('meta_title', 200), $d('meta_description', 320), $d('intro', 2000), empty($_POST['is_active']) ? 0 : 1, (int)($_POST['sort'] ?? 0), $id,
-            ]);
-        } else {
-            Db::run('UPDATE categories SET name = ?, h1 = ?, meta_title = ?, meta_description = ?, intro = ?, sort = ? WHERE id = ?', [
-                $d('name', 120) ?: $row['name'], $d('h1', 200), $d('meta_title', 200), $d('meta_description', 320), $d('intro', 2000), (int)($_POST['sort'] ?? 0), $id,
-            ]);
+        $name = $d('name', $type === 'city' ? 80 : 120);
+        $slug = slugify($d('slug', 80) ?: $name);
+        if (mb_strlen($name) < 2) $errors[] = 'Укажите название';
+        if ($slug === '') $errors[] = 'Укажите адрес (латиницей)';
+        elseif (Db::value("SELECT id FROM $table WHERE slug = ? AND id <> ?", [$slug, $id])) $errors[] = 'Такой адрес уже занят';
+        elseif ($type === 'city' && in_array($slug, reserved_slugs(), true)) $errors[] = 'Адрес /' . $slug . '/ зарезервирован сайтом, выберите другой';
+        $nameIn = $d('name_in', 100) ?: 'в ' . $name;
+        if (!$errors) {
+            if ($type === 'city') {
+                $vals = [$slug, $name, $nameIn, $d('delivery_days', 40) ?: '2–4 дня', $d('delivery_text', 3000), $d('meta_title', 200), $d('meta_description', 320), $d('intro', 2000), $d('seo_text', 20000), empty($_POST['is_active']) ? 0 : 1, (int)($_POST['sort'] ?? 0)];
+                $id ? Db::run('UPDATE cities SET slug = ?, name = ?, name_in = ?, delivery_days = ?, delivery_text = ?, meta_title = ?, meta_description = ?, intro = ?, seo_text = ?, is_active = ?, sort = ? WHERE id = ?', [...$vals, $id])
+                    : Db::run('INSERT INTO cities (slug, name, name_in, delivery_days, delivery_text, meta_title, meta_description, intro, seo_text, is_active, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', $vals);
+                $prefix = '/';
+            } else {
+                $vals = [$slug, $name, $d('h1', 200), $d('meta_title', 200), $d('meta_description', 320), $d('intro', 2000), $d('seo_text', 20000), (int)($_POST['sort'] ?? 0)];
+                $id ? Db::run('UPDATE categories SET slug = ?, name = ?, h1 = ?, meta_title = ?, meta_description = ?, intro = ?, seo_text = ?, sort = ? WHERE id = ?', [...$vals, $id])
+                    : Db::run('INSERT INTO categories (slug, name, h1, meta_title, meta_description, intro, seo_text, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', $vals);
+                $prefix = '/catalog/';
+            }
+            $msg = $id ? 'Сохранено' : ($type === 'city' ? 'Город добавлен' : 'Категория добавлена');
+            if ($row && $row['slug'] !== $slug) {
+                Redirects::add($prefix . $row['slug'] . '/', $prefix . $slug . '/', 'Смена адреса');
+                $msg .= '. Старый адрес ' . $prefix . $row['slug'] . '/ перенаправляет на новый.';
+            }
+            $id = $id ?: Db::lastId();
+            flash($msg);
+            redirect("/admin/seo/$id/$type/");
         }
-        flash('Сохранено');
-        redirect("/admin/seo/$id/$type/");
+        $row = array_merge($row ?? [], $_POST, ['slug' => $slug]);
     }
-    admin_view('seo_edit', ['title' => ($type === 'city' ? 'Город: ' : 'Категория: ') . $row['name'], 'row' => $row, 'type' => $type]);
+    admin_view('seo_edit', [
+        'title' => $id ? ($type === 'city' ? 'Город: ' : 'Категория: ') . $row['name'] : ($type === 'city' ? 'Новый город' : 'Новая категория'),
+        'row' => $row ?? ['is_active' => 1, 'sort' => 100], 'type' => $type, 'id' => $id, 'errors' => $errors,
+    ]);
+}
+
+function admin_seo_delete(string $type, int $id): never
+{
+    $table = $type === 'city' ? 'cities' : 'categories';
+    $row = Db::one("SELECT * FROM $table WHERE id = ?", [$id]);
+    if ($row) {
+        Db::run("DELETE FROM $table WHERE id = ?", [$id]);
+        if ($type === 'city') {
+            Redirects::add('/' . $row['slug'] . '/', '/goroda/', 'Город удалён');
+        } else {
+            Redirects::add('/catalog/' . $row['slug'] . '/', '/catalog/', 'Категория удалена');
+        }
+        flash(($type === 'city' ? 'Город' : 'Категория') . ' «' . $row['name'] . '» удалён(а). Старый адрес перенаправляет ' . ($type === 'city' ? 'на список городов.' : 'в общий каталог; товары остались без категории.'));
+    }
+    redirect('/admin/seo/');
+}
+
+function admin_page_edit(string $slug, string $method): void
+{
+    if ($method === 'POST') {
+        $d = fn($k, $len) => mb_substr(trim((string)($_POST[$k] ?? '')), 0, $len);
+        Pages::save($slug, ['meta_title' => $d('meta_title', 200), 'meta_description' => $d('meta_description', 320), 'h1' => $d('h1', 200), 'body' => $d('body', 50000)]);
+        flash('Страница сохранена');
+        redirect('/admin/pages/' . $slug . '/');
+    }
+    admin_view('page_edit', ['title' => 'Страница: ' . Pages::EDITABLE[$slug][0], 'slug' => $slug, 'page' => Pages::get($slug), 'mode' => Pages::EDITABLE[$slug][1]]);
+}
+
+function admin_article_form(?int $id, ?array $data = null, array $errors = []): void
+{
+    $a = $data ?? ($id ? Db::one('SELECT * FROM articles WHERE id = ?', [$id]) : null);
+    if ($id && !$a) {
+        redirect('/admin/blog/');
+    }
+    admin_view('article_form', ['title' => $id ? 'Статья' : 'Новая статья', 'a' => $a ?? ['is_published' => 0, 'published_at' => date('Y-m-d H:i:s')], 'id' => $id, 'errors' => $errors]);
+}
+
+function admin_article_save(): never
+{
+    $id = ctype_digit((string)($_POST['id'] ?? '')) ? (int)$_POST['id'] : 0;
+    $old = $id ? Db::one('SELECT * FROM articles WHERE id = ?', [$id]) : null;
+    $d = fn($k, $len) => mb_substr(trim((string)($_POST[$k] ?? '')), 0, $len);
+    $a = [
+        'title' => $d('title', 200), 'slug' => slugify($d('slug', 160) ?: $d('title', 200)),
+        'meta_title' => $d('meta_title', 200), 'meta_description' => $d('meta_description', 320),
+        'excerpt' => $d('excerpt', 400), 'body' => $d('body', 100000), 'cover_alt' => $d('cover_alt', 200),
+        'is_published' => empty($_POST['is_published']) ? 0 : 1, 'noindex' => empty($_POST['noindex']) ? 0 : 1,
+    ];
+    $ts = strtotime(str_replace('T', ' ', $d('published_at', 20)));
+    $a['published_at'] = date('Y-m-d H:i:s', $ts ?: time());
+    $errors = [];
+    if (mb_strlen($a['title']) < 5) $errors['title'] = 'Заголовок от 5 символов';
+    if ($a['slug'] === '') $errors['slug'] = 'Укажите адрес';
+    elseif (Db::value('SELECT id FROM articles WHERE slug = ? AND id <> ?', [$a['slug'], $id])) $errors['slug'] = 'Такой адрес уже занят';
+    if ($errors) {
+        admin_article_form($id ?: null, $a + ['id' => $id, 'cover' => $old['cover'] ?? ''], $errors);
+        exit;
+    }
+    $cols = array_keys($a);
+    if ($id) {
+        Db::run('UPDATE articles SET ' . implode(', ', array_map(fn($c) => "$c = ?", $cols)) . ' WHERE id = ?', [...array_values($a), $id]);
+    } else {
+        Db::run('INSERT INTO articles (' . implode(', ', $cols) . ') VALUES (' . implode(', ', array_fill(0, count($cols), '?')) . ')', array_values($a));
+        $id = Db::lastId();
+    }
+    $msg = 'Статья сохранена';
+    if ($old && $old['slug'] !== $a['slug']) {
+        Redirects::add('/blog/' . $old['slug'] . '/', '/blog/' . $a['slug'] . '/', 'Смена адреса статьи');
+    }
+    if (!empty($_POST['remove_cover']) && $old && $old['cover']) {
+        Images::delete($old['cover']);
+        Db::run("UPDATE articles SET cover = '' WHERE id = ?", [$id]);
+    }
+    if (!empty($_FILES['cover']['name'])) {
+        try {
+            $img = Images::storeUpload($_FILES['cover']);
+            if ($old && $old['cover']) Images::delete($old['cover']);
+            Db::run('UPDATE articles SET cover = ? WHERE id = ?', [$img['file'], $id]);
+        } catch (RuntimeException $e) {
+            flash('Статья сохранена, но обложка не загружена: ' . $e->getMessage(), 'err');
+            redirect('/admin/blog/' . $id . '/');
+        }
+    }
+    flash($msg);
+    redirect('/admin/blog/' . $id . '/');
+}
+
+function admin_article_delete(int $id): never
+{
+    $a = Db::one('SELECT * FROM articles WHERE id = ?', [$id]);
+    if ($a) {
+        if ($a['cover']) Images::delete($a['cover']);
+        Db::run('DELETE FROM articles WHERE id = ?', [$id]);
+        if ($a['is_published']) Redirects::add('/blog/' . $a['slug'] . '/', '/blog/', 'Статья удалена');
+        flash('Статья удалена');
+    }
+    redirect('/admin/blog/');
+}
+
+function admin_redirect_add(): never
+{
+    $err = Redirects::add((string)($_POST['from_path'] ?? ''), (string)($_POST['to_path'] ?? ''), trim((string)($_POST['note'] ?? '')));
+    flash($err ?? 'Редирект добавлен', $err ? 'err' : 'ok');
+    redirect('/admin/redirects/');
+}
+
+function admin_redirect_delete(int $id): never
+{
+    Db::run('DELETE FROM redirects WHERE id = ?', [$id]);
+    flash('Редирект удалён');
+    redirect('/admin/redirects/');
 }
 
 function admin_password_save(array $admin): never

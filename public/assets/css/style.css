@@ -301,3 +301,31 @@ body.modal-open { overflow: hidden; }
   .grid--catalog { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media print { .header, .footer, .fab, .topbar, .filters, .modal { display: none !important; } }
+
+/* ---------- Блог и SEO-тексты ---------- */
+.text h2 { margin-top: 1.4em; }
+.text h3 { margin-top: 1.2em; }
+.text ul, .text ol { padding-left: 22px; margin: 0 0 1em; }
+.text li { margin-bottom: .35em; }
+.text table { margin: 0 0 1.2em; }
+.text table th { color: var(--c-text); font-weight: 600; width: auto; background: var(--c-bg-2); }
+.seo-text.text { max-width: 860px; }
+.posts { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.post-card { display: flex; flex-direction: column; border: 1px solid var(--c-line); border-radius: var(--r); overflow: hidden; background: #fff; }
+.post-card__img img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.post-card__body { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.post-card__title { font-size: 1.12rem; margin: 0; }
+.post-card__title a { color: var(--c-text); text-decoration: none; }
+.post-card__title a:hover { color: var(--c-accent-d); }
+.post-card p { margin: 0; color: var(--c-muted); font-size: .95rem; }
+.post-card__more { margin-top: auto; font-weight: 600; text-decoration: none; }
+.article { max-width: 860px; }
+.article__cover { border-radius: var(--r); margin: 8px 0 24px; width: 100%; }
+.article__body { font-size: 1.05rem; }
+.article__cta { margin-top: 32px; padding: 20px; border-radius: var(--r); background: var(--c-bg-2); }
+.article__cta p { margin: 6px 0 14px; color: var(--c-muted); }
+@media (min-width: 600px) { .posts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 960px) {
+  .posts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .nav a { padding: 8px 8px; font-size: .92rem; }
+}

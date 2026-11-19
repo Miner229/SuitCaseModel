@@ -10,7 +10,7 @@ $err = fn($k) => isset($errors[$k]) ? '<div class="a-err">' . e($errors[$k]) . '
     <section class="a-card">
       <h2>Основное</h2>
       <label>Название *<input name="name" value="<?= $v('name') ?>" required maxlength="200"></label><?= $err('name') ?>
-      <label>Адрес страницы (ЧПУ) <small>/product/<b>…</b>/ — пусто = из названия</small><input name="slug" value="<?= $v('slug') ?>" pattern="[a-z0-9\-]*" maxlength="160"></label><?= $err('slug') ?>
+      <label>Адрес страницы (ЧПУ) <small>/product/<b>…</b>/ — пусто = из названия. При смене старый адрес автоматически перенаправит на новый</small><input name="slug" value="<?= $v('slug') ?>" pattern="[a-z0-9\-]*" maxlength="160"></label><?= $err('slug') ?>
       <div class="a-row">
         <label>Категория<select name="category_id"><option value="">—</option><?php foreach ($categories as $c): ?><option value="<?= (int)$c['id'] ?>"<?= (int)($p['category_id'] ?? 0) === (int)$c['id'] ? ' selected' : '' ?>><?= e($c['name']) ?></option><?php endforeach; ?></select></label>
         <label>Размер<select name="size_label"><?php foreach (Catalog::SIZES as $k => $l): ?><option value="<?= $k ?>"<?= ($p['size_label'] ?? '') === $k ? ' selected' : '' ?>><?= e($l) ?></option><?php endforeach; ?></select></label>
@@ -27,6 +27,7 @@ $err = fn($k) => isset($errors[$k]) ? '<div class="a-err">' . e($errors[$k]) . '
         <label><input type="checkbox" name="is_active" value="1"<?= !empty($p['is_active']) ? ' checked' : '' ?>> Показывать на сайте</label>
         <label><input type="checkbox" name="in_stock" value="1"<?= !empty($p['in_stock']) ? ' checked' : '' ?>> В наличии</label>
         <label><input type="checkbox" name="is_featured" value="1"<?= !empty($p['is_featured']) ? ' checked' : '' ?>> Популярный (выше в списке, на главной)</label>
+        <label><input type="checkbox" name="noindex" value="1"<?= !empty($p['noindex']) ? ' checked' : '' ?>> Закрыть от индексации (noindex) — товар виден на сайте, но не попадает в поиск и sitemap</label>
       </div>
       <label>Порядок сортировки <small>(меньше — выше)</small><input name="sort" type="number" value="<?= $v('sort') ?: 0 ?>"></label>
     </section>

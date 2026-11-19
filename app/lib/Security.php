@@ -18,13 +18,14 @@ final class Security
     {
         $n = self::nonce();
         $metrika = 'https://mc.yandex.ru https://mc.yandex.com https://yastatic.net';
+        $google = 'https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com';
         $csp = [
             "default-src 'self'",
-            "script-src 'self' 'nonce-$n' $metrika",
+            "script-src 'self' 'nonce-$n' $metrika $google",
             "style-src 'self' 'unsafe-inline'",
-            "img-src 'self' data: blob: $metrika",
-            "connect-src 'self' $metrika wss://mc.yandex.ru wss://mc.yandex.com",
-            "frame-src 'self' https://mc.yandex.ru https://mc.yandex.com https://yandex.ru https://www.google.com",
+            "img-src 'self' data: blob: $metrika $google https://www.google.com https://www.google.kz",
+            "connect-src 'self' $metrika $google wss://mc.yandex.ru wss://mc.yandex.com",
+            "frame-src 'self' https://mc.yandex.ru https://mc.yandex.com https://yandex.ru https://www.google.com https://www.googletagmanager.com",
             "font-src 'self'",
             "object-src 'none'",
             "base-uri 'self'",

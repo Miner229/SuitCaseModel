@@ -14,4 +14,5 @@
       <?= View::partial('partials/lead_form', ['type' => 'consult', 'formId' => 'contacts', 'button' => 'Отправить', 'withMessage' => true]) ?>
     </div>
   </div>
+  <?= View::partial('partials/seo_text', ['text' => $pageBody ?? '']) ?>
 </section>

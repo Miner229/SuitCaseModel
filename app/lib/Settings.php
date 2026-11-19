@@ -16,6 +16,8 @@ final class Settings
         'city_default' => 'Алматы',
         'instagram' => '',
         'metrika_id' => '',
+        'ga4_id' => '',
+        'gtm_id' => '',
         'yandex_verification' => '',
         'google_verification' => '',
         'consent_version' => '1.0',

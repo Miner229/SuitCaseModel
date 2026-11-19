@@ -41,9 +41,16 @@ k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNo
 ym(<?= (int)$s['metrika_id'] ?>,"init",{clickmap:true,trackLinks:true,accurateTrackBounce:true,webvisor:true,ecommerce:"dataLayer"});
 </script>
 <?php endif; ?>
+<?php if (preg_match('/^G-[A-Z0-9]{4,15}$/', $s['ga4_id'])): ?>
+<script async src="https://www.googletagmanager.com/gtag/js?id=<?= e($s['ga4_id']) ?>" nonce="<?= e($nonce) ?>"></script>
+<script nonce="<?= e($nonce) ?>">window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','<?= e($s['ga4_id']) ?>');</script>
+<?php endif; if (preg_match('/^GTM-[A-Z0-9]{4,12}$/', $s['gtm_id'])): ?>
+<script nonce="<?= e($nonce) ?>">(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;var n=d.querySelector('[nonce]');n&&j.setAttribute('nonce',n.nonce||n.getAttribute('nonce'));f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','<?= e($s['gtm_id']) ?>');</script>
+<?php endif; ?>
 </head>
 <body data-metrika="<?= e(ctype_digit($s['metrika_id']) ? $s['metrika_id'] : '') ?>" data-popup-delay="<?= (int)$s['popup_delay'] ?>">
 <?php if ($s['metrika_id'] && ctype_digit($s['metrika_id'])): ?><noscript><div><img src="https://mc.yandex.ru/watch/<?= (int)$s['metrika_id'] ?>" style="position:absolute;left:-9999px" alt=""></div></noscript><?php endif; ?>
+<?php if (preg_match('/^GTM-[A-Z0-9]{4,12}$/', $s['gtm_id'])): ?><noscript><iframe src="https://www.googletagmanager.com/ns.html?id=<?= e($s['gtm_id']) ?>" height="0" width="0" style="display:none;visibility:hidden" title="GTM"></iframe></noscript><?php endif; ?>
 <a class="skip" href="#main">Перейти к содержимому</a>
 
 <div class="topbar">
@@ -64,6 +71,7 @@ ym(<?= (int)$s['metrika_id'] ?>,"init",{clickmap:true,trackLinks:true,accurateTr
         <a href="/catalog/<?= e($c['slug']) ?>/"<?= $curPath === '/catalog/' . $c['slug'] . '/' ? ' aria-current="page"' : '' ?>><?= e($c['name']) ?></a>
       <?php endforeach; ?>
       <a href="/dostavka-i-oplata/">Доставка</a>
+      <a href="/blog/"<?= str_starts_with((string)$curPath, '/blog/') ? ' aria-current="page"' : '' ?>>Блог</a>
       <a href="/kontakty/">Контакты</a>
     </nav>
     <div class="header__actions">
@@ -99,6 +107,7 @@ ym(<?= (int)$s['metrika_id'] ?>,"init",{clickmap:true,trackLinks:true,accurateTr
       <div class="footer__h">Каталог</div>
       <?php foreach ($navCats as $c): ?><a href="/catalog/<?= e($c['slug']) ?>/"><?= e($c['name']) ?></a><?php endforeach; ?>
       <a href="/kak-vybrat-chemodan/">Как выбрать чемодан</a>
+      <a href="/blog/">Блог</a>
     </div>
     <div>
       <div class="footer__h">Покупателям</div>

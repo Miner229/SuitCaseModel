@@ -1,8 +1,8 @@
-<?php /** @var array $featured @var array $categories @var array $cities @var array $faq */ ?>
+<?php /** @var array $featured @var array $categories @var array $cities @var array $faq @var array $page @var array $articles */ ?>
 <section class="hero">
   <div class="wrap hero__in">
     <div class="hero__text">
-      <h1>Чемоданы для путешествий с доставкой по Казахстану</h1>
+      <h1><?= e($page['h1'] ?: 'Чемоданы для путешествий с доставкой по Казахстану') ?></h1>
       <p class="hero__lead">Ручная кладь по нормам Air Astana и FlyArystan, вместительные чемоданы для отпуска и семейные наборы. Гарантия до 5 лет, оплата Kaspi, доставка от 1 дня.</p>
       <div class="hero__cta">
         <a class="btn btn--lg" href="/catalog/">Смотреть каталог</a>
@@ -75,9 +75,17 @@
   </div>
 </section>
 
+<?php if ($articles): ?>
+<section class="wrap section">
+  <div class="section__head"><h2>Полезное перед поездкой</h2><a href="/blog/">Все статьи →</a></div>
+  <div class="posts"><?php foreach ($articles as $a) echo View::partial('partials/post_card', ['a' => $a]); ?></div>
+</section>
+<?php endif; ?>
+
 <section class="wrap section">
   <h2>Доставляем чемоданы по городам Казахстана</h2>
   <div class="city-links">
     <?php foreach ($cities as $c): ?><a href="/<?= e($c['slug']) ?>/">Чемоданы <?= e($c['name_in']) ?></a><?php endforeach; ?>
   </div>
 </section>
+<?php if (trim((string)$page['body']) !== ''): ?><section class="wrap section"><?= View::partial('partials/seo_text', ['text' => $page['body']]) ?></section><?php endif; ?>

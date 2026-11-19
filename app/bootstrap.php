@@ -20,7 +20,7 @@ if (PHP_SAPI !== 'cli') {
 date_default_timezone_set('Asia/Almaty');
 mb_internal_encoding('UTF-8');
 
-foreach (['Db', 'Helpers', 'Security', 'Settings', 'Seo', 'Catalog', 'Leads', 'Telegram', 'Images', 'View'] as $lib) {
+foreach (['Db', 'Helpers', 'Security', 'Settings', 'Seo', 'Catalog', 'Leads', 'Telegram', 'Images', 'View', 'Content'] as $lib) {
     require APP . '/lib/' . $lib . '.php';
 }
 

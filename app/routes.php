@@ -38,6 +38,8 @@ function dispatch(string $method, string $path): void
         count($seg) === 2 && $seg[0] === 'catalog' => page_catalog($seg[1]),
         count($seg) === 2 && $seg[0] === 'product' => page_product($seg[1]),
         $seg === ['goroda'] => page_cities(),
+        $seg === ['blog'] => page_blog(),
+        count($seg) === 2 && $seg[0] === 'blog' => page_article($seg[1]),
         count($seg) === 1 && isset(STATIC_PAGES[$seg[0]]) => page_static($seg[0]),
         count($seg) === 1 && preg_match('~^[a-z\-]+$~', $seg[0]) === 1 => page_city($seg[0]),
         default => not_found(),
@@ -46,6 +48,13 @@ function dispatch(string $method, string $path): void
 
 function not_found(): never
 {
+    // Сначала проверяем 301-редиректы (старые адреса товаров, удалённые страницы и т.п.)
+    $path = (string)parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
+    if ($r = Redirects::find($path)) {
+        $qs = (string)parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_QUERY);
+        $to = $r['to_path'] . ($qs !== '' && !str_contains($r['to_path'], '?') ? '?' . $qs : '');
+        redirect($to, (int)$r['code'] === 302 ? 302 : 301);
+    }
     $seo = new Seo('Страница не найдена', 'Запрошенная страница не существует.', '/404/');
     $seo->robots = 'noindex, follow';
     View::page('404', ['seo' => $seo, 'featured' => safe_featured()], 404);
@@ -68,6 +77,7 @@ function page_home(): never
         'Интернет-магазин чемоданов: ручная кладь, средние и большие чемоданы, наборы. Доставка по Алматы, Астане и всему Казахстану. Гарантия до 5 лет, оплата Kaspi.',
         '/'
     );
+    $page = Pages::apply('home', $seo);
     $faq = home_faq();
     $seo->jsonLd[] = Seo::organization();
     $seo->jsonLd[] = ['@context' => 'https://schema.org', '@type' => 'WebSite', 'name' => $s['site_name'], 'url' => base_url('/'), 'inLanguage' => 'ru-KZ'];
@@ -78,6 +88,8 @@ function page_home(): never
         'categories' => Catalog::categories(),
         'cities' => Catalog::cities(),
         'faq' => $faq,
+        'page' => $page,
+        'articles' => Articles::published(3),
     ]);
 }
 
@@ -112,6 +124,7 @@ function page_catalog(?string $catSlug): never
         $seo = new Seo('Каталог чемоданов — цены, размеры, характеристики | ' . $s['site_name'], 'Каталог чемоданов на колёсах: размеры S, M, L, XL и наборы. Поликарбонат, полипропилен, ABS. Фильтр по цене, размеру, материалу и цвету. Доставка по Казахстану.', $path);
         $seo->crumbs([['Каталог', '/catalog/']]);
     }
+    $page = $cat ? null : Pages::apply('catalog', $seo);
     // Страницы с фильтрами не индексируем — избегаем дублей, canonical указывает на основную страницу
     if (Catalog::hasFilters($f)) {
         $seo->robots = 'noindex, follow';
@@ -119,7 +132,7 @@ function page_catalog(?string $catSlug): never
     $seo->jsonLd[] = Seo::itemList($products);
     $vars = [
         'seo' => $seo, 'cat' => $cat, 'f' => $f, 'products' => $products, 'basePath' => $path,
-        'options' => Catalog::filterOptions(), 'categories' => Catalog::categories(),
+        'options' => Catalog::filterOptions(), 'categories' => Catalog::categories(), 'page' => $page,
     ];
     // Частичный ответ для AJAX-фильтрации (без перезагрузки страницы)
     if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'fetch') {
@@ -148,6 +161,9 @@ function page_product(string $slug): never
         $path
     );
     $seo->ogType = 'product';
+    if (!empty($p['noindex'])) {
+        $seo->robots = 'noindex, follow';
+    }
     if ($images) {
         $seo->ogImage = base_url(Images::url($images[0]['file'], 1200));
     }
@@ -165,7 +181,8 @@ function page_cities(): never
 {
     $seo = new Seo('Доставка чемоданов по городам Казахстана | ' . Settings::get('site_name'), 'Доставка чемоданов в Алматы, Астану, Шымкент, Караганду и другие города Казахстана. Сроки и стоимость по каждому городу.', '/goroda/');
     $seo->crumbs([['Города доставки', '/goroda/']]);
-    View::page('cities', ['seo' => $seo, 'cities' => Catalog::cities()]);
+    $page = Pages::apply('goroda', $seo);
+    View::page('cities', ['seo' => $seo, 'cities' => Catalog::cities(), 'page' => $page]);
 }
 
 function page_city(string $slug): never
@@ -194,11 +211,18 @@ function page_static(string $slug): never
 {
     [$title, $desc, $h1] = STATIC_PAGES[$slug];
     $seo = new Seo($title . ' | ' . Settings::get('site_name'), $desc, '/' . $slug . '/');
+    $page = Pages::apply($slug, $seo);
+    if ($page['h1'] !== '') {
+        $h1 = $page['h1'];
+    }
     $seo->crumbs([[$h1, '/' . $slug . '/']]);
     if ($slug === 'kontakty') {
         $seo->jsonLd[] = Seo::organization();
     }
-    View::page('pages/' . $slug, ['seo' => $seo, 'h1' => $h1, 'cities' => Catalog::cities()]);
+    $mode = Pages::EDITABLE[$slug][1] ?? 'append';
+    $vars = ['seo' => $seo, 'h1' => $h1, 'cities' => Catalog::cities(), 'pageBody' => $page['body']];
+    // Режим «replace»: текст из админки полностью заменяет стандартный текст страницы
+    View::page($mode === 'replace' && trim((string)$page['body']) !== '' ? 'pages/_custom' : 'pages/' . $slug, $vars);
 }
 
 function page_robots(): never
@@ -244,12 +268,19 @@ function page_sitemap(): never
     foreach (Catalog::categories() as $c) {
         $add('/catalog/' . $c['slug'] . '/', $latest, 'weekly', '0.8');
     }
-    foreach (Db::all('SELECT p.slug, DATE(p.updated_at) d, (SELECT file FROM product_images i WHERE i.product_id = p.id ORDER BY i.sort, i.id LIMIT 1) img FROM products p WHERE p.is_active = 1 ORDER BY p.id') as $p) {
+    foreach (Db::all('SELECT p.slug, DATE(p.updated_at) d, (SELECT file FROM product_images i WHERE i.product_id = p.id ORDER BY i.sort, i.id LIMIT 1) img FROM products p WHERE p.is_active = 1 AND p.noindex = 0 ORDER BY p.id') as $p) {
         $add('/product/' . $p['slug'] . '/', $p['d'], 'weekly', '0.7', $p['img'] ? base_url(Images::url($p['img'], 1200)) : null);
     }
     $add('/goroda/', $latest, 'monthly', '0.6');
     foreach (Catalog::cities() as $c) {
         $add('/' . $c['slug'] . '/', $latest, 'weekly', '0.7');
+    }
+    $arts = Articles::published(1000);
+    $add('/blog/', $arts ? substr($arts[0]['updated_at'], 0, 10) : $today, 'weekly', '0.6');
+    foreach ($arts as $a) {
+        if (!$a['noindex']) {
+            $add('/blog/' . $a['slug'] . '/', substr($a['updated_at'], 0, 10), 'monthly', '0.6', $a['cover'] ? base_url(Images::url($a['cover'], 1200)) : null);
+        }
     }
     foreach (array_keys(STATIC_PAGES) as $slug) {
         $add('/' . $slug . '/', $today, 'monthly', in_array($slug, ['politika-konfidencialnosti', 'soglasie'], true) ? '0.2' : '0.5');
@@ -343,4 +374,46 @@ function api_products(): never
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['ok' => true, 'count' => count($items), 'items' => $items], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
+}
+
+// ======================= БЛОГ =======================
+function page_blog(): never
+{
+    $s = Settings::all();
+    $seo = new Seo('Блог о путешествиях и выборе чемодана | ' . $s['site_name'], 'Полезные статьи: как выбрать чемодан, нормы ручной клади авиакомпаний, советы по упаковке багажа и уходу за чемоданом.', '/blog/');
+    $seo->crumbs([['Блог', '/blog/']]);
+    $page = Pages::apply('blog', $seo);
+    $articles = Articles::published();
+    $seo->jsonLd[] = ['@context' => 'https://schema.org', '@type' => 'Blog', 'name' => 'Блог ' . $s['site_name'], 'url' => base_url('/blog/'),
+        'blogPost' => array_map(fn($a) => ['@type' => 'BlogPosting', 'headline' => $a['title'], 'url' => base_url('/blog/' . $a['slug'] . '/'), 'datePublished' => date('c', strtotime($a['published_at']))], $articles)];
+    View::page('blog', ['seo' => $seo, 'articles' => $articles, 'page' => $page]);
+}
+
+function page_article(string $slug): never
+{
+    $a = Articles::find($slug);
+    if (!$a) {
+        not_found();
+    }
+    $s = Settings::all();
+    $path = '/blog/' . $a['slug'] . '/';
+    $seo = new Seo($a['meta_title'] ?: $a['title'] . ' | ' . $s['site_name'], $a['meta_description'] ?: ($a['excerpt'] ?: Markdown::plain($a['body'])), $path);
+    $seo->ogType = 'article';
+    if ($a['noindex']) {
+        $seo->robots = 'noindex, follow';
+    }
+    if ($a['cover']) {
+        $seo->ogImage = base_url(Images::url($a['cover'], 1200));
+    }
+    $seo->crumbs([['Блог', '/blog/'], [$a['title'], $path]]);
+    $seo->jsonLd[] = [
+        '@context' => 'https://schema.org', '@type' => 'BlogPosting', 'headline' => mb_substr($a['title'], 0, 110),
+        'description' => $seo->description, 'mainEntityOfPage' => base_url($path),
+        'datePublished' => date('c', strtotime($a['published_at'])), 'dateModified' => date('c', strtotime($a['updated_at'])),
+        'image' => $a['cover'] ? [base_url(Images::url($a['cover'], 1200))] : [base_url('/assets/img/og.jpg')],
+        'author' => ['@type' => 'Organization', 'name' => $s['site_name'], 'url' => base_url('/')],
+        'publisher' => ['@type' => 'Organization', 'name' => $s['site_name'], 'logo' => ['@type' => 'ImageObject', 'url' => base_url('/assets/img/logo.svg')]],
+    ];
+    $others = array_values(array_filter(Articles::published(4), fn($x) => $x['id'] !== $a['id']));
+    View::page('article', ['seo' => $seo, 'a' => $a, 'others' => array_slice($others, 0, 3), 'products' => Catalog::featured(4)]);
 }

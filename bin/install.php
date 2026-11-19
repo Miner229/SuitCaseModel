@@ -21,7 +21,7 @@ $pdo = Db::pdo();
 if (isset($opt['reset'])) {
     echo "Удаление таблиц...\n";
     $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-    foreach (['leads', 'product_images', 'products', 'categories', 'cities', 'settings', 'admins', 'rate_limits'] as $t) {
+    foreach (['leads', 'product_images', 'products', 'categories', 'cities', 'settings', 'admins', 'rate_limits', 'redirects', 'pages', 'articles'] as $t) {
         $pdo->exec("DROP TABLE IF EXISTS $t");
     }
     $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
@@ -36,23 +36,37 @@ foreach (array_filter(array_map('trim', explode(';', (string)file_get_contents(R
         $pdo->exec($sql);
     }
 }
+// Миграции для уже работающей базы: добавляем новые колонки, если их нет (данные не трогаются)
+$addColumn = function (string $table, string $col, string $ddl): void {
+    $exists = Db::value('SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?', [$table, $col]);
+    if (!$exists) {
+        Db::pdo()->exec("ALTER TABLE $table ADD COLUMN $col $ddl");
+        echo "Миграция: $table.$col\n";
+    }
+};
+$addColumn('categories', 'seo_text', 'MEDIUMTEXT NULL AFTER intro');
+$addColumn('cities', 'seo_text', 'MEDIUMTEXT NULL AFTER intro');
+$addColumn('products', 'noindex', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER is_featured');
+
 @mkdir(ROOT . '/storage/logs', 0750, true);
 @mkdir(UPLOADS, 0755, true);
 
-if (!Db::value('SELECT COUNT(*) FROM categories')) {
+// Демо-данные наполняются один раз: если заказчик потом удалит все товары/города, они не вернутся
+$seeded = Settings::get('demo_seeded') === '1';
+if (!$seeded && !Db::value('SELECT COUNT(*) FROM categories')) {
     foreach (DEMO_CATEGORIES as $i => $c) {
         Db::run('INSERT INTO categories (slug, name, h1, meta_title, meta_description, intro, sort) VALUES (?, ?, ?, ?, ?, ?, ?)', [...$c, $i]);
     }
     echo "Категории: " . count(DEMO_CATEGORIES) . "\n";
 }
-if (!Db::value('SELECT COUNT(*) FROM cities')) {
+if (!$seeded && !Db::value('SELECT COUNT(*) FROM cities')) {
     foreach (DEMO_CITIES as $i => [$slug, $name, $in, $days, $intro]) {
         Db::run('INSERT INTO cities (slug, name, name_in, delivery_days, intro, sort) VALUES (?, ?, ?, ?, ?, ?)', [$slug, $name, $in, $days, $intro, $i]);
     }
     echo "Города: " . count(DEMO_CITIES) . "\n";
 }
 
-if (!isset($opt['no-demo']) && !Db::value('SELECT COUNT(*) FROM products')) {
+if (!$seeded && !isset($opt['no-demo']) && !Db::value('SELECT COUNT(*) FROM products')) {
     $catIds = array_column(Db::all('SELECT id, slug FROM categories'), 'id', 'slug');
     foreach (DEMO_PRODUCTS as $i => $p) {
         Db::run('INSERT INTO products (slug, name, category_id, brand, sku, price, old_price, size_label, material, color, color_hex,
@@ -71,6 +85,19 @@ if (!isset($opt['no-demo']) && !Db::value('SELECT COUNT(*) FROM products')) {
         }
         echo "  товар: {$p['name']}\n";
     }
+}
+
+Settings::set('demo_seeded', '1');
+
+if (Settings::get('demo_articles_seeded') !== '1') {
+    if (!isset($opt['no-demo']) && !Db::value('SELECT COUNT(*) FROM articles')) {
+        foreach (DEMO_ARTICLES as $i => $a) {
+            Db::run('INSERT INTO articles (slug, title, meta_title, meta_description, excerpt, body, is_published, published_at) VALUES (?, ?, ?, ?, ?, ?, 1, NOW() - INTERVAL ? DAY)',
+                [$a['slug'], $a['title'], $a['meta_title'], $a['meta_description'], $a['excerpt'], $a['body'], ($i + 1) * 3]);
+        }
+        echo 'Статьи блога: ' . count(DEMO_ARTICLES) . "\n";
+    }
+    Settings::set('demo_articles_seeded', '1');
 }
 
 foreach (Settings::DEFAULTS as $k => $v) {

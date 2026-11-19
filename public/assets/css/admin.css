@@ -42,3 +42,6 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px}
 .a-table--cards tr{display:grid;grid-template-columns:64px minmax(0,1fr);gap:4px 12px;padding:12px;border-bottom:1px solid var(--l)}
 .a-table--cards td{border:0;padding:0}.a-table--cards td:first-child{grid-row:span 2}.a-table--cards td:not(:first-child):not(:nth-child(2)){grid-column:1/-1}
 .a-search{margin-left:0;width:100%}.a-search input{min-width:0}.a-quick input[type=number]{width:110px}}
+.a-help{margin:-4px 0 14px;font-size:.88rem}.a-help summary{cursor:pointer;color:#165a5b}.a-help pre{background:var(--bg);padding:10px 12px;border-radius:8px;white-space:pre-wrap;font-size:.85rem}
+.a-cover{border-radius:8px;object-fit:cover;margin-bottom:8px}
+.a-form textarea[name=body],.a-form textarea[name=seo_text]{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.9rem;line-height:1.5}
