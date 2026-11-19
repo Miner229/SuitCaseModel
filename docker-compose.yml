@@ -1,0 +1,33 @@
+# Запуск на своём компьютере: docker compose up  →  http://localhost:8080 (админка: /admin/, admin / Admin12345)
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: chemodan
+      MYSQL_USER: chemodan
+      MYSQL_PASSWORD: chemodan_local
+      MYSQL_ROOT_PASSWORD: root_local
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes: [db_data:/var/lib/mysql]
+  app:
+    build: .
+    ports: ["8080:8080"]
+    depends_on: [db]
+    environment:
+      PORT: "8080"
+      APP_ENV: development
+      APP_URL: http://localhost:8080
+      APP_FORCE_HTTPS: "0"
+      APP_DEBUG: "0"
+      APP_SECRET: local_dev_secret_please_change_0123456789abcdef0123456789
+      DB_HOST: db
+      DB_NAME: chemodan
+      DB_USER: chemodan
+      DB_PASS: chemodan_local
+      ADMIN_PASSWORD: Admin12345
+      TELEGRAM_BOT_TOKEN: ""
+      TELEGRAM_CHAT_ID: ""
+    volumes: [uploads:/var/www/html/public/uploads]
+volumes:
+  db_data:
+  uploads:

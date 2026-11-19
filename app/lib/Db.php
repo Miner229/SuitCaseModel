@@ -10,11 +10,11 @@ final class Db
         if (self::$pdo === null) {
             $dsn = sprintf(
                 'mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4',
-                Env::get('DB_HOST', '127.0.0.1'),
-                Env::get('DB_PORT', '3306'),
-                Env::get('DB_NAME', 'chemodan')
+                self::cfg('DB_HOST', 'MYSQLHOST', '127.0.0.1'),
+                self::cfg('DB_PORT', 'MYSQLPORT', '3306'),
+                self::cfg('DB_NAME', 'MYSQLDATABASE', 'chemodan')
             );
-            self::$pdo = new PDO($dsn, Env::get('DB_USER'), Env::get('DB_PASS'), [
+            self::$pdo = new PDO($dsn, self::cfg('DB_USER', 'MYSQLUSER', ''), self::cfg('DB_PASS', 'MYSQLPASSWORD', ''), [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_EMULATE_PREPARES => false,
@@ -22,6 +22,12 @@ final class Db
             self::$pdo->exec("SET time_zone = '+05:00'");
         }
         return self::$pdo;
+    }
+
+    /** DB_* из .env, иначе переменные, которые выдаёт MySQL-сервис Railway (MYSQLHOST и т.д.). */
+    private static function cfg(string $key, string $railwayKey, string $default): string
+    {
+        return Env::get($key) ?: Env::get($railwayKey, $default);
     }
 
     /** Все запросы — только через подготовленные выражения (защита от SQL-инъекций). */

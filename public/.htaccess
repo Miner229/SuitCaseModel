@@ -7,6 +7,9 @@ AddDefaultCharset utf-8
   RewriteEngine On
 
   # 1. HTTPS
+  # (отключается переменной окружения APP_FORCE_HTTPS=0 и для localhost)
+  RewriteCond %{ENV:APP_FORCE_HTTPS} !=0
+  RewriteCond %{HTTP_HOST} !^(localhost|127\.0\.0\.1)(:\d+)?$
   RewriteCond %{HTTPS} !=on
   RewriteCond %{HTTP:X-Forwarded-Proto} !=https
   RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
