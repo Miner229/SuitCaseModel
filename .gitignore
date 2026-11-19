@@ -1,0 +1,8 @@
+.env
+storage/logs/*
+!storage/logs/.gitkeep
+public/uploads/*.webp
+tests/screenshots/
+tests/mock/telegram.log
+node_modules/
+dist/
