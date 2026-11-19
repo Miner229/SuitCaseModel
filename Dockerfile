@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libpng-dev libj
 
 COPY deploy/php.ini /usr/local/etc/php/conf.d/zz-app.ini
 COPY deploy/apache-site.conf /etc/apache2/sites-available/000-default.conf
-RUN echo "ServerTokens Prod\nServerSignature Off" >> /etc/apache2/apache2.conf
+RUN printf "ServerTokens Prod\nServerSignature Off\nServerName localhost\n" >> /etc/apache2/apache2.conf
 
 WORKDIR /var/www/html
 COPY . .
