@@ -83,7 +83,7 @@ final class Security
         self::startSession();
         $t = (string)($_POST['_csrf'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
         if (empty($_SESSION['csrf']) || !hash_equals($_SESSION['csrf'], $t)) {
-            http_response_code(419);
+            http_response_code(403); // 403, а не 419: Apache не знает код 419 и отдаёт 500
             exit('Сессия устарела. Обновите страницу и повторите действие.');
         }
     }

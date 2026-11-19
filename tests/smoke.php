@@ -62,6 +62,8 @@ function attr(DOMXPath $x, string $q, string $a): string { $n = $x->query($q)->i
 function txt(DOMXPath $x, string $q): string { $n = $x->query($q)->item(0); return $n ? trim($n->textContent) : ''; }
 function token(int $age = 10): string { $ts = (string)(time() - $age); return $ts . '.' . hash_hmac('sha256', $ts, Env::get('APP_SECRET')); }
 function csrf(string $html): string { return attr(dom($html), '//input[@name="_csrf"]', 'value'); }
+/** Файл фото существует на сервере (проверка по HTTP, работает и с удалённым сервером). */
+function imgExists(string $file, int $w): bool { return http('GET', "/uploads/$file-$w.webp")['code'] === 200; }
 function resetLimits(): void { Db::run('DELETE FROM rate_limits'); }
 function lead(array $over = []): array
 {
@@ -319,7 +321,7 @@ $login = http('GET', '/admin/login/');
 $r = http('POST', '/admin/login/', ['form' => ['_csrf' => csrf($login['body']), 'login' => 'admin', 'password' => 'wrong-password']]);
 t('Неверный пароль — отказ', str_contains($r['body'], 'Неверный логин или пароль'));
 $r = http('POST', '/admin/login/', ['form' => ['login' => 'admin', 'password' => 'x']]);
-t('Вход без CSRF-токена → 419', $r['code'] === 419);
+t('Вход без CSRF-токена → 403', $r['code'] === 403);
 resetLimits();
 $codes = [];
 for ($i = 0; $i < 6; $i++) { $lg = http('GET', '/admin/login/'); $codes[] = http('POST', '/admin/login/', ['form' => ['_csrf' => csrf($lg['body']), 'login' => 'admin', 'password' => 'bad' . $i]])['code']; }
@@ -350,7 +352,7 @@ $r = http('POST', '/admin/products/save/', ['form' => [
 $newId = (int)Db::value('SELECT id FROM products WHERE slug = ?', [$slug]);
 t('Добавление товара', $r['code'] === 302 && $newId > 0);
 $imgs = Catalog::images($newId);
-t('Фото загружено и сконвертировано в WebP 400/800/1200', count($imgs) === 1 && is_file(UPLOADS . '/' . $imgs[0]['file'] . '-1200.webp') && is_file(UPLOADS . '/' . $imgs[0]['file'] . '-400.webp'));
+t('Фото загружено и сконвертировано в WebP 400/800/1200', count($imgs) === 1 && imgExists($imgs[0]['file'], 1200) && imgExists($imgs[0]['file'], 400));
 t('PHP-файл, замаскированный под JPG, отклонён', count($imgs) === 1 && !glob(UPLOADS . '/*.php'));
 $pg = http('GET', "/product/$slug/");
 t('Новый товар виден на сайте с ценой и габаритами', $pg['code'] === 200 && str_contains($pg['body'], '12 345 ₸') && str_contains($pg['body'], '65,5×44×26'));
@@ -385,7 +387,7 @@ $imgs = Catalog::images($newId);
 t('Добавление ещё одного фото', count($imgs) === 2);
 $file = $imgs[0]['file'];
 http('POST', '/admin/images/' . $imgs[0]['id'] . '/delete/', ['form' => ['_csrf' => $tok]]);
-t('Удаление фото (и файлов с диска)', count(Catalog::images($newId)) === 1 && !is_file(UPLOADS . "/$file-800.webp"));
+t('Удаление фото (и файлов с диска)', count(Catalog::images($newId)) === 1 && !imgExists($file, 800));
 http('POST', "/admin/products/$newId/delete/", ['form' => []]);
 t('Удаление без CSRF-токена не срабатывает', (bool)Db::value('SELECT id FROM products WHERE id = ?', [$newId]));
 // Дублирование
@@ -395,7 +397,7 @@ t('Дублирование товара (копия скрыта)', $dupId > 0 
 http('POST', "/admin/products/$dupId/delete/", ['form' => ['_csrf' => $tok]]);
 $left = Catalog::images($newId);
 http('POST', "/admin/products/$newId/delete/", ['form' => ['_csrf' => $tok]]);
-t('Удаление товара вместе с фото', !Db::value('SELECT id FROM products WHERE id IN (?, ?)', [$newId, $dupId]) && !is_file(UPLOADS . '/' . $left[0]['file'] . '-400.webp'));
+t('Удаление товара вместе с фото', !Db::value('SELECT id FROM products WHERE id IN (?, ?)', [$newId, $dupId]) && !imgExists($left[0]['file'], 400));
 t('Удалённый товар → 404', http('GET', "/product/$slug/")['code'] === 404);
 // Заявки в админке
 resetLimits();
