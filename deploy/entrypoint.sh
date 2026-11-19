@@ -3,6 +3,9 @@
 set -e
 export PORT="${PORT:-80}"
 sed -i "s/^Listen .*/Listen ${PORT}/" /etc/apache2/ports.conf
+# Apache должен работать ровно с одним MPM — prefork (нужен для mod_php)
+rm -f /etc/apache2/mods-enabled/mpm_event.* /etc/apache2/mods-enabled/mpm_worker.*
+[ -e /etc/apache2/mods-enabled/mpm_prefork.load ] || a2enmod mpm_prefork >/dev/null
 
 # Секрет форм: если не задан — генерируем (формы, открытые до перезапуска, попросят обновить страницу)
 if [ -z "$APP_SECRET" ]; then
@@ -11,7 +14,7 @@ if [ -z "$APP_SECRET" ]; then
 fi
 # Передаём переменные окружения в Apache/PHP
 for v in APP_ENV APP_URL APP_FORCE_HTTPS APP_DEBUG APP_SECRET DB_HOST DB_PORT DB_NAME DB_USER DB_PASS \
-         MYSQLHOST MYSQLPORT MYSQLDATABASE MYSQLUSER MYSQLPASSWORD TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID TELEGRAM_API_BASE; do
+         MYSQLHOST MYSQLPORT MYSQLDATABASE MYSQLUSER MYSQLPASSWORD RAILWAY_PUBLIC_DOMAIN TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID TELEGRAM_API_BASE; do
   eval "val=\${$v:-}"
   [ -n "$val" ] && echo "PassEnv $v" >> /etc/apache2/conf-enabled/app-env.conf
 done

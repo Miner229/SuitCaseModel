@@ -10,6 +10,9 @@ function e(mixed $v): string
 function base_url(string $path = ''): string
 {
     $base = rtrim(Env::get('APP_URL', ''), '/');
+    if ($base === '' && Env::get('RAILWAY_PUBLIC_DOMAIN') !== '') {
+        $base = 'https://' . Env::get('RAILWAY_PUBLIC_DOMAIN');
+    }
     if ($base === '') {
         $scheme = is_https() ? 'https' : 'http';
         $base = $scheme . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost');

@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libpng-dev libj
  && docker-php-ext-configure gd --with-jpeg --with-webp --with-freetype \
  && docker-php-ext-install -j"$(nproc)" pdo_mysql gd exif \
  && a2enmod rewrite headers deflate expires \
+ && (a2dismod -f mpm_event mpm_worker || true) && a2enmod mpm_prefork \
  && rm -rf /var/lib/apt/lists/*
 
 COPY deploy/php.ini /usr/local/etc/php/conf.d/zz-app.ini
