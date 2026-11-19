@@ -17,10 +17,17 @@ for v in APP_ENV APP_URL APP_FORCE_HTTPS APP_DEBUG APP_SECRET DB_HOST DB_PORT DB
 done
 sort -u -o /etc/apache2/conf-enabled/app-env.conf /etc/apache2/conf-enabled/app-env.conf 2>/dev/null || true
 
+# Диагностика: какие переменные БД видны контейнеру (только названия и хост, без паролей)
+for v in DB_HOST DB_PORT DB_NAME DB_USER DB_PASS MYSQLHOST; do
+  eval "val=\${$v:-}"
+  if [ -n "$val" ]; then echo "  $v: задана"; else echo "  $v: пусто"; fi
+done
 if [ -z "${DB_HOST:-}${MYSQLHOST:-}" ]; then
   echo "ОШИБКА: не заданы переменные базы данных (DB_HOST, DB_NAME, DB_USER, DB_PASS)."
   echo "Railway: добавьте сервис MySQL (+ Create -> Database -> MySQL), затем в сервисе сайта"
   echo "Variables -> Raw Editor вставьте переменные из docs/DEPLOY-RAILWAY.md (DB_HOST=\${{MySQL.MYSQLHOST}} и т.д.)."
+  echo "Если переменные уже добавлены — нажмите Redeploy: Railway подставляет их только при новом запуске."
+  sleep 20
   exit 1
 fi
 echo "Ожидание базы данных (${DB_HOST:-$MYSQLHOST}:${DB_PORT:-${MYSQLPORT:-3306}})..."
