@@ -1,6 +1,36 @@
 <?php
 declare(strict_types=1);
 
+/** Ракурсы демо-фото: [имя файла в bin/demo-photos, подпись для alt]. */
+const DEMO_VIEWS = [['angle', 'вид под углом'], ['front', 'вид спереди'], ['side', 'вид сбоку']];
+/** alt демо-фото (старых и новых) — по нему отличаем их от фото, загруженных заказчиком. */
+const DEMO_ALT_RE = '/ — (вид под углом|вид спереди|вид сбоку|внутри)$/u';
+
+/** Готовый студийный рендер для артикула, если есть (bin/demo-photos/{SKU}-{view}.webp). */
+function demo_photo_file(string $sku, string $view): ?string
+{
+    $f = __DIR__ . '/demo-photos/' . $sku . '-' . $view . '.webp';
+    return is_file($f) ? $f : null;
+}
+
+/**
+ * Сохраняет демо-фото товара: готовый рендер, а если его нет — простую картинку через GD.
+ * @return array{file:string,width:int,height:int}
+ */
+function demo_store_photo(array $p, int $k): array
+{
+    $view = DEMO_VIEWS[$k % 3][0];
+    $src = demo_photo_file((string)($p['sku'] ?? ''), $view);
+    if ($src) {
+        return Images::storeFile($src);
+    }
+    $tmp = sys_get_temp_dir() . '/demo-' . bin2hex(random_bytes(4)) . '.png';
+    demo_suitcase_png($tmp, $p['hex'], $p['size'], ['front', 'side', 'open'][$k % 3], str_starts_with($p['material'], 'Ткань'));
+    $img = Images::storeFile($tmp);
+    @unlink($tmp);
+    return $img;
+}
+
 /** Рисует демо-фото чемодана (1200×1200 PNG) — заглушка, пока заказчик не загрузит реальные фото. */
 function demo_suitcase_png(string $out, string $hex, string $size, string $view, bool $soft): void
 {

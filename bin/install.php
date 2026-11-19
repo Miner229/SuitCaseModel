@@ -54,7 +54,6 @@ if (!Db::value('SELECT COUNT(*) FROM cities')) {
 
 if (!isset($opt['no-demo']) && !Db::value('SELECT COUNT(*) FROM products')) {
     $catIds = array_column(Db::all('SELECT id, slug FROM categories'), 'id', 'slug');
-    $tmp = sys_get_temp_dir() . '/demo-' . bin2hex(random_bytes(4)) . '.png';
     foreach (DEMO_PRODUCTS as $i => $p) {
         Db::run('INSERT INTO products (slug, name, category_id, brand, sku, price, old_price, size_label, material, color, color_hex,
             height_cm, width_cm, depth_cm, volume_l, weight_kg, wheels, lock_type, expandable, warranty_months, short_desc, description,
@@ -65,15 +64,13 @@ if (!isset($opt['no-demo']) && !Db::value('SELECT COUNT(*) FROM products')) {
             $p['short'], $p['desc'], (int)($p['stock'] ?? 1), (int)($p['top'] ?? 0), $i * 10,
         ]);
         $pid = Db::lastId();
-        foreach (['front', 'side', 'open'] as $k => $view) {
-            demo_suitcase_png($tmp, $p['hex'], $p['size'], $view, str_starts_with($p['material'], 'Ткань'));
-            $img = Images::storeFile($tmp);
+        foreach (DEMO_VIEWS as $k => [$view, $label]) {
+            $img = demo_store_photo($p, $k);
             Db::run('INSERT INTO product_images (product_id, file, width, height, alt, sort) VALUES (?, ?, ?, ?, ?, ?)',
-                [$pid, $img['file'], $img['width'], $img['height'], $p['name'] . ' — ' . ['вид спереди', 'вид сбоку', 'внутри'][$k], $k]);
+                [$pid, $img['file'], $img['width'], $img['height'], $p['name'] . ' — ' . $label, $k]);
         }
         echo "  товар: {$p['name']}\n";
     }
-    @unlink($tmp);
 }
 
 foreach (Settings::DEFAULTS as $k => $v) {
