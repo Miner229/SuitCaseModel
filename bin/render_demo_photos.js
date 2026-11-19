@@ -124,7 +124,26 @@ function frontFace(x, y, w, h, hex, kind, brand) {
   let out = `<defs>${bg.svg}${vs.svg}<clipPath id="${clip}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}"/></clipPath></defs>`;
   out += `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="url(#${bg.id})"/>`;
   out += `<g clip-path="url(#${clip})">`;
-  if (kind === 'hard' || kind === 'alu') {
+  const pattern = kind === 'alu' ? 'vertical' : ({ Nomad: 'horizontal', Steppe: 'diamond' }[brand] || 'vertical');
+  if ((kind === 'hard' || kind === 'alu') && pattern === 'horizontal') {
+    // серия Nomad: широкие горизонтальные пояса
+    for (const t of [0.3, 0.5, 0.7]) {
+      const ly = y + h * t, gh = 16 * s;
+      out += `<rect x="${x + 40 * s}" y="${ly - gh}" width="${w - 80 * s}" height="${gh}" rx="${gh / 2}" fill="#000" opacity=".2" filter="url(#blur2)"/>`;
+      out += `<rect x="${x + 40 * s}" y="${ly}" width="${w - 80 * s}" height="${gh * 0.7}" rx="${gh / 2}" fill="#fff" opacity=".15" filter="url(#blur2)"/>`;
+    }
+    out += `<rect x="${x}" y="${y}" width="${w}" height="${h}" filter="url(#grain)" opacity=".5"/>`;
+  } else if ((kind === 'hard' || kind === 'alu') && pattern === 'diamond') {
+    // серия Steppe: рельеф «ромб»
+    const pid = id('pt'), step = 46 * s;
+    out += `<defs><pattern id="${pid}" width="${step}" height="${step}" patternUnits="userSpaceOnUse" patternTransform="rotate(45 ${x} ${y})">
+      <rect width="${step}" height="${step}" fill="none"/><line x1="0" y1="0" x2="0" y2="${step}" stroke="#000" stroke-opacity=".16" stroke-width="${4 * s}"/>
+      <line x1="${2.5 * s}" y1="0" x2="${2.5 * s}" y2="${step}" stroke="#fff" stroke-opacity=".12" stroke-width="${2 * s}"/>
+      <line x1="0" y1="0" x2="${step}" y2="0" stroke="#000" stroke-opacity=".16" stroke-width="${4 * s}"/>
+      <line x1="0" y1="${2.5 * s}" x2="${step}" y2="${2.5 * s}" stroke="#fff" stroke-opacity=".12" stroke-width="${2 * s}"/></pattern></defs>`;
+    out += `<rect x="${x + 30 * s}" y="${y + 40 * s}" width="${w - 60 * s}" height="${h - 80 * s}" rx="${r * 0.7}" fill="url(#${pid})"/>`;
+    out += `<rect x="${x}" y="${y}" width="${w}" height="${h}" filter="url(#grain)" opacity=".5"/>`;
+  } else if (kind === 'hard' || kind === 'alu') {
     // рёбра жёсткости: пары тёмная/светлая линия
     const n = kind === 'alu' ? 9 : 4;
     for (let i = 1; i <= n; i++) {
@@ -238,7 +257,17 @@ function suitcaseFront(cx, groundY, H, p, kind) {
   const y = groundY - 62 * s - h, x = cx - w / 2;
   let g = `<ellipse cx="${cx}" cy="${groundY + 4}" rx="${w * 0.7}" ry="${30 * s}" fill="#000" opacity=".26" filter="url(#blur30)"/>`;
   g += `<ellipse cx="${cx}" cy="${groundY - 2}" rx="${w * 0.5}" ry="${10 * s}" fill="#000" opacity=".35" filter="url(#blur10)"/>`;
+  const body = kind === 'alu' ? '#c3cad0' : p.hex;
+  const r = Math.min(w, h) * 0.13;
+  // задние колёса чуть видны за передними
+  g += wheel(x + 70 * s, groundY - 8 * s, s * 0.85) + wheel(x + w - 70 * s, groundY - 8 * s, s * 0.85);
+  // выдвижная ручка и утопленное гнездо для неё на верхней грани
   g += teleHandle(x + w * 0.3, x + w * 0.7, y - 250 * s, y + 30 * s, s);
+  g += `<rect x="${x + w * 0.22}" y="${y - 12 * s}" width="${w * 0.56}" height="${28 * s}" rx="${10 * s}" fill="#181b1f"/>`;
+  g += `<rect x="${x + w * 0.24}" y="${y - 9 * s}" width="${w * 0.52}" height="${6 * s}" rx="${3 * s}" fill="#fff" opacity=".1"/>`;
+  // толщина корпуса: задняя половина видна тонким кантом по контуру + молния
+  g += `<rect x="${x - 7 * s}" y="${y - 4 * s}" width="${w + 14 * s}" height="${h + 10 * s}" rx="${r + 6 * s}" fill="${shade(body, 0.45)}"/>`;
+  g += `<rect x="${x - 3.5 * s}" y="${y - 1 * s}" width="${w + 7 * s}" height="${h + 4 * s}" rx="${r + 3 * s}" fill="none" stroke="#101214" stroke-width="${3.5 * s}" stroke-dasharray="${2.2 * s} ${1.8 * s}"/>`;
   g += topHandle(cx, y + 4 * s, w * 0.36, s);
   g += frontFace(x, y, w, h, p.hex, kind, p.brand);
   g += wheel(x + 44 * s, groundY, s) + wheel(x + w - 44 * s, groundY, s);
@@ -282,7 +311,9 @@ function scene(p, view) {
     }
   } else {
     const H = sizeH(p.size);
-    body = view === 'angle' ? suitcase34(600, ground, H, p, kind) : view === 'front' ? suitcaseFront(600, ground, H, p, kind) : suitcaseSide(600, ground, H, p, kind);
+    // Вид спереди — главное фото в каталоге: чемодан крупно, почти на весь кадр
+    const HF = { S: 660, M: 690, L: 705, XL: 712 }[p.size] || 690;
+    body = view === 'angle' ? suitcase34(600, ground, H, p, kind) : view === 'front' ? suitcaseFront(600, ground, HF, p, kind) : suitcaseSide(600, ground, H, p, kind);
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200">
     <defs>${defs()}</defs>

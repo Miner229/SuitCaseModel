@@ -11,7 +11,7 @@ if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 require dirname(__DIR__) . '/app/bootstrap.php';
 require __DIR__ . '/demo_images.php';
 
-const DEMO_PHOTOS_VERSION = '3';
+const DEMO_PHOTOS_VERSION = '4';
 
 $products = Db::all('SELECT id, name, sku, color_hex AS hex, size_label AS size, material FROM products');
 
@@ -19,7 +19,7 @@ $products = Db::all('SELECT id, name, sku, color_hex AS hex, size_label AS size,
 if (Settings::get('demo_photos_version') !== DEMO_PHOTOS_VERSION) {
     $replaced = 0;
     foreach ($products as $p) {
-        if (!demo_photo_file($p['sku'], 'angle')) continue;
+        if (!demo_photo_file($p['sku'], 'front')) continue;
         $demo = array_filter(Catalog::images((int)$p['id']), fn($i) => preg_match(DEMO_ALT_RE, $i['alt']));
         if (!$demo) continue;
         foreach ($demo as $im) {
